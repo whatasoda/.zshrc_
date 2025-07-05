@@ -3,8 +3,9 @@ local eisuKanaToggle = 0
 -- 指定した keyCode を物理キーとして送信する
 local function sendKeycode(keycode)
   local event = hs.eventtap.event.newKeyEvent({}, keycode, true):post()
-  hs.timer.usleep(1000)
-  hs.eventtap.event.newKeyEvent({}, keycode, false):post()
+  hs.timer.doAfter(0.01, function()
+    hs.eventtap.event.newKeyEvent({}, keycode, false):post()
+  end)
 end
 
 -- F19 トグルで英数/かなを切り替え
