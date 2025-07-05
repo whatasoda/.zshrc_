@@ -15,14 +15,20 @@ local function toggleAppByBundleID(bundleID)
   end
 end
 
+-- イベントタップ定義（global にして再スタート可能に）
 local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(event)
   local flags = event:getFlags()
   local keyCode = event:getKeyCode()
 
-  if flags.ctrl then
+  if flags:containExactly({ "ctrl" }) then
     for key, bundleID in pairs(apps) do
-      if keyCode == hs.keycodes.map[key] then
-        toggleAppByBundleID(bundleID)
+      if keyCode == hs.keycodes.map[string.upper(key)] then
+        local ok, err = pcall(function()
+          toggleAppByBundleID(bundleID)
+        end)
+        if not ok then
+          hs.alert.show("toggle error: " .. tostring(err))
+        end
         return true
       end
     end
@@ -32,3 +38,13 @@ local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(event)
 end)
 
 tap:start()
+
+hs.hotkey.bind({ "ctrl" }, "D", function()
+  hs.alert.show("🔄 Reloading Hammerspoon config")
+  hs.reload()
+end)
+
+hs.hotkey.bind({ "ctrl" }, "S", function()
+  hs.alert.show("🔄 Reloading Hammerspoon config")
+  hs.reload()
+end)
