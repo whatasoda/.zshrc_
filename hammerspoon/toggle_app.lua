@@ -1,5 +1,5 @@
 local apps = {
-  c = "com.microsoft.VSCode",
+  d = "com.microsoft.VSCode",
   s = "com.mitchellh.ghostty"
 }
 
