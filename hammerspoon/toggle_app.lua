@@ -1,30 +1,31 @@
-local function toggleApp(appName)
-  local app = hs.application.get(appName)
-  local frontApp = hs.application.frontmostApplication()
+local apps = {
+  c = "com.microsoft.VSCode",
+  s = "com.mitchellh.ghostty"
+}
 
-  if app then
-    if app:isFrontmost() then
-      app:hide()
-    else
-      app:activate()
-    end
+local function toggleAppByBundleID(bundleID)
+  local app = hs.application.get(bundleID)
+
+  if app and app:isFrontmost() then
+    app:hide()
+  elseif app then
+    app:activate()
   else
-    hs.application.launchOrFocus(appName)
+    hs.application.launchOrFocusByBundleID(bundleID)
   end
 end
-
-local keymap = {
-  [hs.keycodes.map.f] = "Code",
-  [hs.keycodes.map.s] = "Ghostty",
-}
 
 local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(event)
   local flags = event:getFlags()
   local keyCode = event:getKeyCode()
 
-  if flags.ctrl and keymap[keyCode] then
-    toggleApp(keymap[keyCode])
-    return true
+  if flags.ctrl then
+    for key, bundleID in pairs(apps) do
+      if keyCode == hs.keycodes.map[key] then
+        toggleAppByBundleID(bundleID)
+        return true
+      end
+    end
   end
 
   return false
