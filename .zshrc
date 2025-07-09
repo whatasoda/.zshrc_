@@ -35,3 +35,5 @@ eval "$(starship init zsh)"
 alias ttyconf='code "$HOME/Library/Application Support/com.mitchellh.ghostty/config"'
 
 alias reviewit="bunx --bun reviewit@latest"
+
+alias cs="cursor"

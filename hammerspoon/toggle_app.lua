@@ -1,5 +1,6 @@
 local apps = {
-  d = "com.microsoft.VSCode",
+  d = "com.todesktop.230313mzl4w4u92",
+  -- d = "com.microsoft.VSCode",
   s = "com.mitchellh.ghostty"
 }
 
@@ -41,10 +42,12 @@ tap:start()
 
 hs.hotkey.bind({ "ctrl" }, "D", function()
   hs.alert.show("🔄 Reloading Hammerspoon config")
+  toggleAppByBundleID(apps.d)
   hs.reload()
 end)
 
 hs.hotkey.bind({ "ctrl" }, "S", function()
   hs.alert.show("🔄 Reloading Hammerspoon config")
+  toggleAppByBundleID(apps.s)
   hs.reload()
 end)
