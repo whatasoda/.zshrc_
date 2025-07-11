@@ -3,10 +3,24 @@ alias difit="bunx --bun difit"
 gifit() {
   local from_commit to_commit from_hash to_hash
 
-  from_commit=$(git log --oneline --decorate -100 | fzf --prompt "FROM(inclusive)> ") || return
+  from_commit=$(git log --oneline --decorate -100 --color=always | \
+    fzf \
+      --ansi \
+      --header "> difit \$TO \$FROM~1" \
+      --prompt "Select \$FROM>" \
+      --preview 'git log --oneline --decorate --color=always -1 {1}' \
+      --preview-window=top:3:wrap
+  ) || return
   from_hash="${from_commit%% *}"
 
-  to_commit=$(git log --oneline --decorate -100 $from_hash~1.. | fzf --prompt "TO(inclusive)> ") || return
+  to_commit=$(git log --oneline --decorate -100 --color=always $from_hash~1.. | \
+    fzf \
+      --ansi \
+      --header "> difit \$TO $from_hash~1" \
+      --prompt "Select \$TO>" \
+      --preview 'git log --oneline --decorate --color=always -1 {1}' \
+      --preview-window=top:3:wrap
+  ) || return
   to_hash="${to_commit%% *}"
 
   difit "$to_hash" "$from_hash~1"
