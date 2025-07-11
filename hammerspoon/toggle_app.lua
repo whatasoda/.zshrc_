@@ -1,7 +1,8 @@
 local apps = {
   d = "com.todesktop.230313mzl4w4u92",
   -- d = "com.microsoft.VSCode",
-  s = "com.mitchellh.ghostty"
+  s = "com.mitchellh.ghostty",
+  g = "com.tinyspeck.slackmacgap"
 }
 
 local function toggleAppByBundleID(bundleID)
@@ -49,5 +50,11 @@ end)
 hs.hotkey.bind({ "ctrl" }, "S", function()
   hs.alert.show("🔄 Reloading Hammerspoon config")
   toggleAppByBundleID(apps.s)
+  hs.reload()
+end)
+
+hs.hotkey.bind({ "ctrl" }, "G", function()
+  hs.alert.show("🔄 Reloading Hammerspoon config")
+  toggleAppByBundleID(apps.g)
   hs.reload()
 end)
