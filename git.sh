@@ -4,10 +4,9 @@ fpath=($(brew --prefix)/share/zsh/site-function $fpath)
 
 # Worktree sync configuration (for gw/gwlink functions)
 # Uncomment and modify the following line to sync files between main repo and worktrees
-# GW_SYNC_PATHS=(
-#   ".claude/settings.local.json"
-#   ".vscode/settings.json"
-# )
+GW_SYNC_PATHS=(
+  ".claude/settings.local.json"
+)
 
 alias s="git status"
 compdef s "git status"
