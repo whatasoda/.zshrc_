@@ -4,7 +4,10 @@ fpath=($(brew --prefix)/share/zsh/site-function $fpath)
 
 # Worktree sync configuration (for gw/gwlink functions)
 # Uncomment and modify the following line to sync files between main repo and worktrees
-# export GW_SYNC_PATHS=".claude/settings.local.json:.vscode/settings.json"
+# GW_SYNC_PATHS=(
+#   ".claude/settings.local.json"
+#   ".vscode/settings.json"
+# )
 
 alias s="git status"
 compdef s "git status"
@@ -106,7 +109,7 @@ function gw() {
   cd "$target_dir" || return 1
   
   # Auto-sync configured paths for new worktree
-  if [[ -n "$GW_SYNC_PATHS" ]]; then
+  if [[ ${#GW_SYNC_PATHS[@]} -gt 0 ]]; then
     echo "[gw] Setting up symbolic links for synced paths..."
     gwlink
   fi
@@ -124,9 +127,9 @@ function gwlink() {
   }
 
   # Check if GW_SYNC_PATHS is set
-  if [[ -z "$GW_SYNC_PATHS" ]]; then
-    echo "[gwlink] No paths to sync. Set GW_SYNC_PATHS environment variable."
-    echo "[gwlink] Example: export GW_SYNC_PATHS=\".claude/settings.local.json:.vscode/settings.json\""
+  if [[ ${#GW_SYNC_PATHS[@]} -eq 0 ]]; then
+    echo "[gwlink] No paths to sync. Set GW_SYNC_PATHS array."
+    echo "[gwlink] Example: GW_SYNC_PATHS=(\".claude/settings.local.json\" \".vscode/settings.json\")"
     return 0
   fi
 
@@ -147,12 +150,10 @@ function gwlink() {
     return 0
   fi
 
-  # Process each path in GW_SYNC_PATHS (colon-separated)
-  local IFS=':'
-  local sync_paths=($GW_SYNC_PATHS)
+  # Process each path in GW_SYNC_PATHS array
   local failed=0
   
-  for sync_path in "${sync_paths[@]}"; do
+  for sync_path in "${GW_SYNC_PATHS[@]}"; do
     # Trim whitespace
     sync_path="${sync_path## }"
     sync_path="${sync_path%% }"
