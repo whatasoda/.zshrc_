@@ -2,6 +2,10 @@
 PATH=$(brew --prefix git):$PATH
 fpath=($(brew --prefix)/share/zsh/site-function $fpath)
 
+# Worktree sync configuration (for gw/gwlink functions)
+# Uncomment and modify the following line to sync files between main repo and worktrees
+# export GW_SYNC_PATHS=".claude/settings.local.json:.vscode/settings.json"
+
 alias s="git status"
 compdef s "git status"
 alias w="git switch"
@@ -100,6 +104,127 @@ function gw() {
   git fetch origin "$default_branch"
   git worktree add "$target_dir" "origin/$default_branch" || return 1
   cd "$target_dir" || return 1
+  
+  # Auto-sync configured paths for new worktree
+  if [[ -n "$GW_SYNC_PATHS" ]]; then
+    echo "[gw] Setting up symbolic links for synced paths..."
+    gwlink
+  fi
+}
+
+# ==========================
+# gwlink function - Create symbolic links for synced paths
+# ==========================
+function gwlink() {
+  # Check if we're in a git repository
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "[gwlink] Error: Not inside a Git repository"
+    return 1
+  }
+
+  # Check if GW_SYNC_PATHS is set
+  if [[ -z "$GW_SYNC_PATHS" ]]; then
+    echo "[gwlink] No paths to sync. Set GW_SYNC_PATHS environment variable."
+    echo "[gwlink] Example: export GW_SYNC_PATHS=\".claude/settings.local.json:.vscode/settings.json\""
+    return 0
+  fi
+
+  # Determine the main repository path
+  local main_repo_path="$repo_root"
+  if [[ -f "$repo_root/.git" ]]; then
+    local gitdir_line
+    gitdir_line=$(<"$repo_root/.git")
+    if [[ "$gitdir_line" =~ gitdir:\ (.*)/\.git/worktrees/.* ]]; then
+      main_repo_path="${match[1]}"
+      echo "[gwlink] Detected worktree. Main repository: $main_repo_path"
+    else
+      echo "[gwlink] Already in main repository. No linking needed."
+      return 0
+    fi
+  else
+    echo "[gwlink] Already in main repository. No linking needed."
+    return 0
+  fi
+
+  # Process each path in GW_SYNC_PATHS (colon-separated)
+  local IFS=':'
+  local sync_paths=($GW_SYNC_PATHS)
+  local failed=0
+  
+  for sync_path in "${sync_paths[@]}"; do
+    # Trim whitespace
+    sync_path="${sync_path## }"
+    sync_path="${sync_path%% }"
+    
+    if [[ -z "$sync_path" ]]; then
+      continue
+    fi
+
+    local source_path="$main_repo_path/$sync_path"
+    local target_path="$repo_root/$sync_path"
+    local target_dir="$(dirname "$target_path")"
+
+    echo "[gwlink] Processing: $sync_path"
+
+    # Check if source exists in main repository
+    if [[ ! -e "$source_path" ]]; then
+      echo "[gwlink]   ⚠ Source does not exist in main repository: $source_path"
+      echo "[gwlink]   Skipping..."
+      continue
+    fi
+
+    # Check if target already exists
+    if [[ -e "$target_path" || -L "$target_path" ]]; then
+      if [[ -L "$target_path" ]]; then
+        local current_link=$(readlink "$target_path")
+        if [[ "$current_link" == "$source_path" ]]; then
+          echo "[gwlink]   ✓ Already linked correctly"
+          continue
+        else
+          echo "[gwlink]   ✗ Error: Symbolic link exists but points to different location"
+          echo "[gwlink]     Current: $current_link"
+          echo "[gwlink]     Expected: $source_path"
+          echo "[gwlink]     Please remove or fix manually: rm \"$target_path\""
+          failed=1
+          continue
+        fi
+      else
+        echo "[gwlink]   ✗ Error: File/directory already exists at target location"
+        echo "[gwlink]     Path: $target_path"
+        echo "[gwlink]     Please remove or backup manually before linking"
+        failed=1
+        continue
+      fi
+    fi
+
+    # Create target directory if needed
+    if [[ ! -d "$target_dir" ]]; then
+      echo "[gwlink]   Creating directory: $target_dir"
+      mkdir -p "$target_dir" || {
+        echo "[gwlink]   ✗ Error: Failed to create directory"
+        failed=1
+        continue
+      }
+    fi
+
+    # Create symbolic link
+    ln -s "$source_path" "$target_path" || {
+      echo "[gwlink]   ✗ Error: Failed to create symbolic link"
+      failed=1
+      continue
+    }
+
+    echo "[gwlink]   ✓ Successfully linked to main repository"
+  done
+
+  if [[ $failed -eq 1 ]]; then
+    echo "[gwlink] Some operations failed. Please resolve the issues above."
+    return 1
+  fi
+
+  echo "[gwlink] All paths synced successfully."
+  return 0
 }
 
 # ==========================
