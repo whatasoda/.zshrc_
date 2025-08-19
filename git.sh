@@ -119,10 +119,10 @@ function gw() {
 # gwlink function - Create symbolic links for synced paths
 # ==========================
 function gwlink() {
-  # Check if we're in a git repository
+  # Get current Git repository root
   local repo_root
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "[gwlink] Error: Not inside a Git repository"
+    echo "Not inside a Git repository"
     return 1
   }
 
@@ -133,7 +133,7 @@ function gwlink() {
     return 0
   fi
 
-  # Determine the main repository path
+  # Determine the main repository path (same logic as gw function)
   local main_repo_path="$repo_root"
   if [[ -f "$repo_root/.git" ]]; then
     local gitdir_line
