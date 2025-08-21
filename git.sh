@@ -2,12 +2,6 @@
 PATH=$(brew --prefix git):$PATH
 fpath=($(brew --prefix)/share/zsh/site-function $fpath)
 
-# Worktree sync configuration (for gw/gwlink functions)
-# Uncomment and modify the following line to sync files between main repo and worktrees
-GW_SYNC_PATHS=(
-  ".claude/settings.local.json"
-)
-
 alias s="git status"
 compdef s "git status"
 alias w="git switch"
@@ -39,6 +33,12 @@ function ww() {
     | awk -F'\t' '{ print $2 }' \
     | xargs git checkout
 }
+
+# Worktree sync configuration (for gw/gwlink functions)
+# Uncomment and modify the following line to sync files between main repo and worktrees
+GW_SYNC_PATHS=(
+  ".claude/settings.local.json"
+)
 
 # ==========================
 # gw function
