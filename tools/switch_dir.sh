@@ -7,12 +7,14 @@ switch_dir() {
 
   local base="$default_base"
 
-  # If inside a Git repo and it's the expected one, override base path
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    local repo_name
-    repo_name=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
-    if [[ "$repo_name" == "$expected_repo" ]]; then
-      base=$(git rev-parse --show-toplevel)
+  if [[ -n "$expected_repo" ]]; then
+    # If inside a Git repo and it's the expected one, override base path
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      local repo_name
+      repo_name=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
+      if [[ "$repo_name" == "$expected_repo" ]]; then
+        base=$(git rev-parse --show-toplevel)
+      fi
     fi
   fi
 
@@ -35,12 +37,14 @@ _switch_dir() {
 
   local base="$default_base"
 
-  # If inside a Git repo and it matches the expected repo, override base
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    local repo_name
-    repo_name=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
-    if [[ "$repo_name" == "$expected_repo" ]]; then
-      base=$(git rev-parse --show-toplevel)
+  if [[ -n "$expected_repo" ]]; then
+    # If inside a Git repo and it matches the expected repo, override base
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      local repo_name
+      repo_name=$(basename -s .git "$(git remote get-url origin 2>/dev/null)")
+      if [[ "$repo_name" == "$expected_repo" ]]; then
+        base=$(git rev-parse --show-toplevel)
+      fi
     fi
   fi
 

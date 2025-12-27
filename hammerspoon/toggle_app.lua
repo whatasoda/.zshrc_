@@ -36,10 +36,10 @@ local function switchAppByName(appName, toggle)
   end
 end
 
-local function showIDE()
-  switchAppByBundleID(IDE_APP_ID, false)
-  hs.eventtap.keyStroke({ "ctrl", "shift", "command" }, "w")
-end
+-- local function showIDE()
+--   switchAppByBundleID(IDE_APP_ID, false)
+--   hs.eventtap.keyStroke({ "ctrl", "shift", "command" }, "w")
+-- end
 
 local function toggleIDE()
   switchAppByBundleID(IDE_APP_ID, true)
@@ -79,10 +79,10 @@ local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(event)
   local flags = event:getFlags()
   local keyCode = event:getKeyCode()
 
-  if flags:containExactly({ "ctrl" }) and keyCode == hs.keycodes.map["A"] then
-    hideIDEAndTerminal()
-    return true
-  end
+  -- if flags:containExactly({ "ctrl" }) and keyCode == hs.keycodes.map["A"] then
+  --   hideIDEAndTerminal()
+  --   return true
+  -- end
 
   if flags:containExactly({ "ctrl" }) and keyCode == hs.keycodes.map["S"] then
     toggleTerminal()
@@ -94,10 +94,10 @@ local tap = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(event)
     return true
   end
 
-  if flags:containExactly({ "ctrl" }) and keyCode == hs.keycodes.map["W"] then
-    showIDE()
-    return true
-  end
+  -- if flags:containExactly({ "ctrl" }) and keyCode == hs.keycodes.map["W"] then
+  --   showIDE()
+  --   return true
+  -- end
 
   if flags:containExactly({ "ctrl", "shift" }) and keyCode == hs.keycodes.map["Q"] then
     toggleCalendar()
@@ -109,11 +109,11 @@ end)
 
 tap:start()
 
-hs.hotkey.bind({ "ctrl" }, "a", function()
-  hs.alert.show("🔄 Reloading Hammerspoon config")
-  hideIDEAndTerminal()
-  hs.reload()
-end)
+-- hs.hotkey.bind({ "ctrl" }, "a", function()
+--   hs.alert.show("🔄 Reloading Hammerspoon config")
+--   hideIDEAndTerminal()
+--   hs.reload()
+-- end)
 
 hs.hotkey.bind({ "ctrl" }, "s", function()
   hs.alert.show("🔄 Reloading Hammerspoon config")
@@ -121,11 +121,11 @@ hs.hotkey.bind({ "ctrl" }, "s", function()
   hs.reload()
 end)
 
-hs.hotkey.bind({ "ctrl" }, "w", function()
-  hs.alert.show("🔄 Reloading Hammerspoon config")
-  showIDE()
-  hs.reload()
-end)
+-- hs.hotkey.bind({ "ctrl" }, "w", function()
+--   hs.alert.show("🔄 Reloading Hammerspoon config")
+--   showIDE()
+--   hs.reload()
+-- end)
 
 hs.hotkey.bind({ "ctrl" }, "d", function()
   hs.alert.show("🔄 Reloading Hammerspoon config")

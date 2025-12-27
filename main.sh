@@ -20,7 +20,6 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 . $HOME/.zshrc_/tools/docker_log.sh
 . $HOME/.zshrc_/tools/fzf.sh
 . $HOME/.zshrc_/tools/look_ip.sh
-. $HOME/.zshrc_/tools/screenshot.sh
 . $HOME/.zshrc_/tools/switch_dir.sh
 
 # Mac
