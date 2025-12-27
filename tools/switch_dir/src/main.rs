@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -42,27 +42,14 @@ struct Config {
     dir_prefix: Option<String>,
     expected_repo: Option<String>,
     aliases: Option<HashMap<String, String>>,
+    cache_dir: Option<String>,
 }
 
-#[derive(serde::Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Cache {
     base: String,
-    directories: Vec<String>,
+    paths: HashMap<String, String>,
     candidates: Vec<String>,
-}
-
-fn get_cache_dir() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("switch_dir")
-}
-
-fn get_cache_id(base: &str) -> String {
-    base.replace('/', "_").replace('~', "_home_")
-}
-
-fn get_cache_path(base: &str) -> PathBuf {
-    get_cache_dir().join(format!("{}.json", get_cache_id(base)))
 }
 
 fn expand_tilde(path: &str) -> String {
@@ -72,6 +59,26 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+fn get_cache_id(base: &str) -> String {
+    base.replace('/', "_").replace('~', "_home_")
+}
+
+fn get_cache_dir(config: &Config) -> PathBuf {
+    config
+        .cache_dir
+        .as_ref()
+        .map(|d| PathBuf::from(expand_tilde(d)))
+        .unwrap_or_else(|| {
+            dirs::cache_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join("switch_dir")
+        })
+}
+
+fn get_cache_path(config: &Config, base: &str) -> PathBuf {
+    get_cache_dir(config).join(format!("{}.json", get_cache_id(base)))
 }
 
 fn load_config(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
@@ -103,26 +110,29 @@ fn resolve_base(default_base: &str, expected_repo: Option<&str>) -> String {
     expanded
 }
 
-fn collect_candidates(
+fn collect_paths(
     base: &str,
     prefix: &str,
     dir_prefix: Option<&str>,
-) -> (Vec<String>, Vec<String>) {
+) -> (HashMap<String, String>, Vec<String>) {
     let target_dir = Path::new(base).join(prefix);
-    let mut directories = Vec::new();
-    let mut candidates = Vec::new();
+    let mut paths: HashMap<String, String> = HashMap::new();
+    let mut candidates: Vec<String> = Vec::new();
 
     if let Ok(entries) = fs::read_dir(&target_dir) {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
                 if let Some(name) = entry.file_name().to_str() {
-                    directories.push(name.to_string());
+                    let full_path = entry.path().to_string_lossy().to_string();
+
+                    paths.insert(name.to_string(), full_path.clone());
                     candidates.push(name.to_string());
 
                     if let Some(dp) = dir_prefix {
                         if let Some(stripped) = name.strip_prefix(dp) {
                             let stripped_path = target_dir.join(stripped);
                             if !stripped_path.exists() {
+                                paths.insert(stripped.to_string(), full_path);
                                 candidates.push(stripped.to_string());
                             }
                         }
@@ -132,52 +142,43 @@ fn collect_candidates(
         }
     }
 
-    directories.sort();
     candidates.sort();
-
-    (directories, candidates)
+    (paths, candidates)
 }
 
-fn load_cache(base: &str) -> Option<Cache> {
-    let path = get_cache_path(base);
+fn load_cache(config: &Config, base: &str) -> Option<Cache> {
+    let path = get_cache_path(config, base);
     let content = fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
-fn save_cache(cache: &Cache) -> io::Result<()> {
-    let cache_dir = get_cache_dir();
+fn save_cache(config: &Config, cache: &Cache) -> io::Result<()> {
+    let cache_dir = get_cache_dir(config);
     fs::create_dir_all(&cache_dir)?;
-    let path = get_cache_path(&cache.base);
+    let path = get_cache_path(config, &cache.base);
     let content = serde_json::to_string(cache)?;
     fs::write(path, content)
 }
 
-fn refresh_cache(base: &str, prefix: &str, dir_prefix: Option<&str>) -> Cache {
-    let (directories, candidates) = collect_candidates(base, prefix, dir_prefix);
+fn refresh_cache(config: &Config, base: &str, prefix: &str, dir_prefix: Option<&str>) -> Cache {
+    let (paths, candidates) = collect_paths(base, prefix, dir_prefix);
     let cache = Cache {
         base: base.to_string(),
-        directories,
+        paths,
         candidates,
     };
-    let _ = save_cache(&cache);
+    let _ = save_cache(config, &cache);
     cache
 }
 
-fn cmd_list(config: &Config, config_path: &str) {
+fn cmd_list(config: &Config) {
     let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
 
-    let candidates = if let Some(cache) = load_cache(&resolved_base) {
-        // Spawn background refresh
-        if let Ok(exe) = std::env::current_exe() {
-            let _ = Command::new(exe)
-                .arg("refresh")
-                .arg("--config")
-                .arg(config_path)
-                .spawn();
-        }
+    let candidates = if let Some(cache) = load_cache(config, &resolved_base) {
         cache.candidates
     } else {
         let cache = refresh_cache(
+            config,
             &resolved_base,
             &config.prefix,
             config.dir_prefix.as_deref(),
@@ -204,20 +205,26 @@ fn cmd_resolve(config: &Config, key: &str) {
         }
     }
 
-    let target_dir = Path::new(&resolved_base).join(&config.prefix);
-
-    // Exact match
-    let exact_path = target_dir.join(key);
-    if exact_path.is_dir() {
-        println!("{}", exact_path.display());
-        return;
+    // Try cache
+    if let Some(cache) = load_cache(config, &resolved_base) {
+        if let Some(path) = cache.paths.get(key) {
+            if Path::new(path).is_dir() {
+                println!("{}", path);
+                return;
+            }
+        }
     }
 
-    // Prefix match
-    if let Some(dp) = &config.dir_prefix {
-        let prefixed_path = target_dir.join(format!("{}{}", dp, key));
-        if prefixed_path.is_dir() {
-            println!("{}", prefixed_path.display());
+    // Cache miss or path not found - refresh and retry
+    let cache = refresh_cache(
+        config,
+        &resolved_base,
+        &config.prefix,
+        config.dir_prefix.as_deref(),
+    );
+    if let Some(path) = cache.paths.get(key) {
+        if Path::new(path).is_dir() {
+            println!("{}", path);
             return;
         }
     }
@@ -228,6 +235,7 @@ fn cmd_resolve(config: &Config, key: &str) {
 fn cmd_refresh(config: &Config) {
     let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
     refresh_cache(
+        config,
         &resolved_base,
         &config.prefix,
         config.dir_prefix.as_deref(),
@@ -243,7 +251,7 @@ fn main() {
                 eprintln!("Failed to load config: {}", e);
                 std::process::exit(1);
             });
-            cmd_list(&cfg, &config);
+            cmd_list(&cfg);
         }
         Commands::Resolve { config, key } => {
             let cfg = load_config(&config).unwrap_or_else(|e| {
