@@ -40,7 +40,9 @@ struct Config {
     base: String,
     prefix: String,
     dir_prefix: Option<String>,
-    expected_repo: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    expected_repo: Option<String>, // Kept for backwards compatibility
     aliases: Option<HashMap<String, String>>,
     cache_dir: Option<String>,
 }
@@ -88,28 +90,6 @@ fn load_config(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(&expanded)?;
     let config: Config = serde_json::from_str(&content)?;
     Ok(config)
-}
-
-fn resolve_base(default_base: &str, expected_repo: Option<&str>) -> String {
-    let expanded = expand_tilde(default_base);
-
-    if let Some(repo) = expected_repo {
-        if let Ok(output) = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-        {
-            if output.status.success() {
-                let git_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if let Some(dir_name) = Path::new(&git_root).file_name() {
-                    if dir_name.to_str() == Some(repo) {
-                        return git_root;
-                    }
-                }
-            }
-        }
-    }
-
-    expanded
 }
 
 fn collect_paths(
@@ -232,14 +212,14 @@ fn cmd_list(config: &Config) {
         return;
     }
 
-    // Cache miss - resolve base and refresh
-    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
-    let cache = if let Some(cache) = load_cache(config, &resolved_base) {
+    // Cache miss - use default base (root worktree)
+    let base = expand_tilde(&config.base);
+    let cache = if let Some(cache) = load_cache(config, &base) {
         cache
     } else {
         refresh_cache(
             config,
-            &resolved_base,
+            &base,
             &config.prefix,
             config.dir_prefix.as_deref(),
             None,
@@ -281,13 +261,13 @@ fn cmd_resolve(config: &Config, key: &str) {
         }
     }
 
-    // Cache miss - resolve base and try again
-    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
+    // Cache miss - use default base (root worktree)
+    let base = expand_tilde(&config.base);
 
     // Try aliases
     if let Some(aliases) = &config.aliases {
         if let Some(subpath) = aliases.get(key) {
-            let full_path = Path::new(&resolved_base).join(subpath);
+            let full_path = Path::new(&base).join(subpath);
             if full_path.is_dir() {
                 println!("{}", full_path.display());
                 return;
@@ -296,7 +276,7 @@ fn cmd_resolve(config: &Config, key: &str) {
     }
 
     // Try existing cache
-    if let Some(cache) = load_cache(config, &resolved_base) {
+    if let Some(cache) = load_cache(config, &base) {
         if let Some(path) = cache.paths.get(key) {
             if Path::new(path).is_dir() {
                 println!("{}", path);
@@ -308,7 +288,7 @@ fn cmd_resolve(config: &Config, key: &str) {
     // Refresh and retry
     let cache = refresh_cache(
         config,
-        &resolved_base,
+        &base,
         &config.prefix,
         config.dir_prefix.as_deref(),
         None,
