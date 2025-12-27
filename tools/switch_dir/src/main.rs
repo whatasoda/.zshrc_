@@ -33,6 +33,11 @@ enum Commands {
         #[arg(long)]
         config: String,
     },
+    /// Initialize cache with all worktrees
+    Init {
+        #[arg(long)]
+        config: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -48,6 +53,8 @@ struct Config {
 #[derive(Serialize, Deserialize)]
 struct Cache {
     base: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktrees: Option<Vec<String>>,
     paths: HashMap<String, String>,
     candidates: Vec<String>,
 }
@@ -152,7 +159,7 @@ fn load_cache(config: &Config, base: &str) -> Option<Cache> {
     serde_json::from_str(&content).ok()
 }
 
-fn find_matching_cache(config: &Config) -> Option<Cache> {
+fn find_matching_cache(config: &Config) -> Option<(Cache, String)> {
     let cwd = std::env::current_dir().ok()?;
     let cwd_str = cwd.to_str()?;
     let cache_dir = get_cache_dir(config);
@@ -163,8 +170,19 @@ fn find_matching_cache(config: &Config) -> Option<Cache> {
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(cache) = serde_json::from_str::<Cache>(&content) {
+                        // Check base first
                         if cwd_str.starts_with(&cache.base) {
-                            return Some(cache);
+                            let base = cache.base.clone();
+                            return Some((cache, base));
+                        }
+                        // Check worktrees
+                        if let Some(worktrees) = &cache.worktrees {
+                            for wt in worktrees {
+                                if cwd_str.starts_with(wt) {
+                                    let matched = wt.clone();
+                                    return Some((cache, matched));
+                                }
+                            }
                         }
                     }
                 }
@@ -172,6 +190,16 @@ fn find_matching_cache(config: &Config) -> Option<Cache> {
         }
     }
     None
+}
+
+fn transform_path(path: &str, from_base: &str, to_base: &str) -> String {
+    if from_base == to_base {
+        path.to_string()
+    } else if let Some(suffix) = path.strip_prefix(from_base) {
+        format!("{}{}", to_base, suffix)
+    } else {
+        path.to_string()
+    }
 }
 
 fn save_cache(config: &Config, cache: &Cache) -> io::Result<()> {
@@ -182,10 +210,17 @@ fn save_cache(config: &Config, cache: &Cache) -> io::Result<()> {
     fs::write(path, content)
 }
 
-fn refresh_cache(config: &Config, base: &str, prefix: &str, dir_prefix: Option<&str>) -> Cache {
+fn refresh_cache(
+    config: &Config,
+    base: &str,
+    prefix: &str,
+    dir_prefix: Option<&str>,
+    worktrees: Option<Vec<String>>,
+) -> Cache {
     let (paths, candidates) = collect_paths(base, prefix, dir_prefix);
     let cache = Cache {
         base: base.to_string(),
+        worktrees,
         paths,
         candidates,
     };
@@ -195,7 +230,7 @@ fn refresh_cache(config: &Config, base: &str, prefix: &str, dir_prefix: Option<&
 
 fn cmd_list(config: &Config) {
     // Try cache-first (no git command)
-    if let Some(cache) = find_matching_cache(config) {
+    if let Some((cache, _matched_base)) = find_matching_cache(config) {
         for candidate in &cache.candidates {
             println!("{}", candidate);
         }
@@ -212,6 +247,7 @@ fn cmd_list(config: &Config) {
             &resolved_base,
             &config.prefix,
             config.dir_prefix.as_deref(),
+            None,
         )
     };
 
@@ -222,11 +258,11 @@ fn cmd_list(config: &Config) {
 
 fn cmd_resolve(config: &Config, key: &str) {
     // Try cache-first (no git command)
-    if let Some(cache) = find_matching_cache(config) {
+    if let Some((cache, matched_base)) = find_matching_cache(config) {
         // Try aliases first
         if let Some(aliases) = &config.aliases {
             if let Some(subpath) = aliases.get(key) {
-                let full_path = Path::new(&cache.base).join(subpath);
+                let full_path = Path::new(&matched_base).join(subpath);
                 if full_path.is_dir() {
                     println!("{}", full_path.display());
                     return;
@@ -234,10 +270,11 @@ fn cmd_resolve(config: &Config, key: &str) {
             }
         }
 
-        // Try cache paths
+        // Try cache paths (transform to matched_base if in worktree)
         if let Some(path) = cache.paths.get(key) {
-            if Path::new(path).is_dir() {
-                println!("{}", path);
+            let transformed = transform_path(path, &cache.base, &matched_base);
+            if Path::new(&transformed).is_dir() {
+                println!("{}", transformed);
                 return;
             }
         }
@@ -273,6 +310,7 @@ fn cmd_resolve(config: &Config, key: &str) {
         &resolved_base,
         &config.prefix,
         config.dir_prefix.as_deref(),
+        None,
     );
     if let Some(path) = cache.paths.get(key) {
         if Path::new(path).is_dir() {
@@ -291,7 +329,62 @@ fn cmd_refresh(config: &Config) {
         &resolved_base,
         &config.prefix,
         config.dir_prefix.as_deref(),
+        None,
     );
+}
+
+fn get_worktrees(base: &str) -> Vec<String> {
+    let output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(base)
+        .output();
+
+    let mut worktrees = Vec::new();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Some(path) = line.strip_prefix("worktree ") {
+                    worktrees.push(path.to_string());
+                }
+            }
+        }
+    }
+
+    worktrees
+}
+
+fn cmd_init(config: &Config) {
+    let base = expand_tilde(&config.base);
+
+    // Get all worktrees
+    let worktrees = get_worktrees(&base);
+
+    if worktrees.is_empty() {
+        eprintln!("No worktrees found in {}", base);
+        std::process::exit(1);
+    }
+
+    // Collect paths from main repo
+    let (paths, candidates) = collect_paths(&base, &config.prefix, config.dir_prefix.as_deref());
+
+    let cache = Cache {
+        base: base.clone(),
+        worktrees: Some(worktrees.clone()),
+        paths,
+        candidates,
+    };
+
+    if let Err(e) = save_cache(config, &cache) {
+        eprintln!("Failed to save cache: {}", e);
+        std::process::exit(1);
+    }
+
+    println!("Initialized cache with {} worktrees:", worktrees.len());
+    for wt in &worktrees {
+        println!("  {}", wt);
+    }
 }
 
 fn main() {
@@ -318,6 +411,13 @@ fn main() {
                 std::process::exit(1);
             });
             cmd_refresh(&cfg);
+        }
+        Commands::Init { config } => {
+            let cfg = load_config(&config).unwrap_or_else(|e| {
+                eprintln!("Failed to load config: {}", e);
+                std::process::exit(1);
+            });
+            cmd_init(&cfg);
         }
     }
 }
