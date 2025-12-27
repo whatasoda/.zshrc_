@@ -4,6 +4,7 @@ switch_dir() {
   local expected_repo=$3   # The expected Git repo name
   local fallback_prefix=$4 # The fallback subdirectory (e.g. "packages")
   local key=$5             # The key to look up (e.g. "web")
+  local dir_prefix=$6      # Directory name prefix (e.g. "dinii-")
 
   local base="$default_base"
 
@@ -22,11 +23,15 @@ switch_dir() {
   local subpath
   subpath=$(jq -r --arg k "$key" 'if has($k) then .[$k] else empty end' <<< "$json")
 
-  # If found in JSON, use that path; otherwise fallback to default directory
+  # Priority: JSON > exact match > prefix match
   if [[ -n "$subpath" ]]; then
     cd "$base/$subpath" || return 1
-  else
+  elif [[ -d "$base/$fallback_prefix/$key" ]]; then
     cd "$base/$fallback_prefix/$key" || return 1
+  elif [[ -n "$dir_prefix" && -d "$base/$fallback_prefix/${dir_prefix}${key}" ]]; then
+    cd "$base/$fallback_prefix/${dir_prefix}${key}" || return 1
+  else
+    return 1
   fi
 }
 
@@ -34,6 +39,7 @@ _switch_dir() {
   local default_base=$1     # Fallback root directory
   local expected_repo=$2    # Expected Git repository name
   local fallback_prefix=$3  # Subdirectory used for fallback (e.g. "packages")
+  local dir_prefix=$4       # Directory name prefix (e.g. "dinii-")
 
   local base="$default_base"
 
@@ -51,7 +57,17 @@ _switch_dir() {
   # Collect all directories under fallback_prefix as candidates
   local -a result
   for dir in "$base/$fallback_prefix/"*/; do
-    [[ -d "$dir" ]] && result+=("$(basename "$dir")")
+    [[ -d "$dir" ]] || continue
+    local name=$(basename "$dir")
+    result+=("$name")
+
+    # If dir has prefix, also add the stripped name (if no conflict)
+    if [[ -n "$dir_prefix" && "$name" == "${dir_prefix}"* ]]; then
+      local stripped="${name#$dir_prefix}"
+      if [[ ! -d "$base/$fallback_prefix/$stripped" ]]; then
+        result+=("$stripped")
+      fi
+    fi
   done
 
   echo "${result[@]}"
