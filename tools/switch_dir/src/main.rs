@@ -152,6 +152,28 @@ fn load_cache(config: &Config, base: &str) -> Option<Cache> {
     serde_json::from_str(&content).ok()
 }
 
+fn find_matching_cache(config: &Config) -> Option<Cache> {
+    let cwd = std::env::current_dir().ok()?;
+    let cwd_str = cwd.to_str()?;
+    let cache_dir = get_cache_dir(config);
+
+    if let Ok(entries) = fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(cache) = serde_json::from_str::<Cache>(&content) {
+                        if cwd_str.starts_with(&cache.base) {
+                            return Some(cache);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn save_cache(config: &Config, cache: &Cache) -> io::Result<()> {
     let cache_dir = get_cache_dir(config);
     fs::create_dir_all(&cache_dir)?;
@@ -172,29 +194,59 @@ fn refresh_cache(config: &Config, base: &str, prefix: &str, dir_prefix: Option<&
 }
 
 fn cmd_list(config: &Config) {
-    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
+    // Try cache-first (no git command)
+    if let Some(cache) = find_matching_cache(config) {
+        for candidate in &cache.candidates {
+            println!("{}", candidate);
+        }
+        return;
+    }
 
-    let candidates = if let Some(cache) = load_cache(config, &resolved_base) {
-        cache.candidates
+    // Cache miss - resolve base and refresh
+    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
+    let cache = if let Some(cache) = load_cache(config, &resolved_base) {
+        cache
     } else {
-        let cache = refresh_cache(
+        refresh_cache(
             config,
             &resolved_base,
             &config.prefix,
             config.dir_prefix.as_deref(),
-        );
-        cache.candidates
+        )
     };
 
-    for candidate in candidates {
+    for candidate in cache.candidates {
         println!("{}", candidate);
     }
 }
 
 fn cmd_resolve(config: &Config, key: &str) {
+    // Try cache-first (no git command)
+    if let Some(cache) = find_matching_cache(config) {
+        // Try aliases first
+        if let Some(aliases) = &config.aliases {
+            if let Some(subpath) = aliases.get(key) {
+                let full_path = Path::new(&cache.base).join(subpath);
+                if full_path.is_dir() {
+                    println!("{}", full_path.display());
+                    return;
+                }
+            }
+        }
+
+        // Try cache paths
+        if let Some(path) = cache.paths.get(key) {
+            if Path::new(path).is_dir() {
+                println!("{}", path);
+                return;
+            }
+        }
+    }
+
+    // Cache miss - resolve base and try again
     let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
 
-    // Try aliases first
+    // Try aliases
     if let Some(aliases) = &config.aliases {
         if let Some(subpath) = aliases.get(key) {
             let full_path = Path::new(&resolved_base).join(subpath);
@@ -205,7 +257,7 @@ fn cmd_resolve(config: &Config, key: &str) {
         }
     }
 
-    // Try cache
+    // Try existing cache
     if let Some(cache) = load_cache(config, &resolved_base) {
         if let Some(path) = cache.paths.get(key) {
             if Path::new(path).is_dir() {
@@ -215,7 +267,7 @@ fn cmd_resolve(config: &Config, key: &str) {
         }
     }
 
-    // Cache miss or path not found - refresh and retry
+    // Refresh and retry
     let cache = refresh_cache(
         config,
         &resolved_base,
