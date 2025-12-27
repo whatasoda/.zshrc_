@@ -1,5 +1,13 @@
 #!/bin/bash
-root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+
+# git 管理下かどうかを確認
+if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    # git 管理外: full pwd を表示（~ 形式）
+    pwd | sed "s|^$HOME|~|"
+    exit 0
+fi
+
+# git 管理下の場合
 common_git_dir=$(git rev-parse --git-common-dir 2>/dev/null)
 worktree_name=$(basename "$root")
 

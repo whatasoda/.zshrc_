@@ -97,8 +97,8 @@ min_time = 0
 only_detached = false
 
 [custom.worktree]
-command = "~/.config/starship-worktree.sh"
-when = "git rev-parse --is-inside-work-tree 2>/dev/null"
+command = "~/.zshrc_/starship/starship-worktree.sh"
+when = "true"
 format = "[$output]($style) "
 style = "cyan bold"
 
