@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -19,43 +19,32 @@ enum Commands {
     /// List directory candidates for fzf
     List {
         #[arg(long)]
-        base: String,
-        #[arg(long)]
-        prefix: String,
-        #[arg(long)]
-        dir_prefix: Option<String>,
-        #[arg(long)]
-        expected_repo: Option<String>,
+        config: String,
     },
     /// Resolve a key to a directory path
     Resolve {
         #[arg(long)]
-        base: String,
-        #[arg(long)]
-        prefix: String,
-        #[arg(long)]
-        dir_prefix: Option<String>,
-        #[arg(long)]
-        expected_repo: Option<String>,
+        config: String,
         #[arg(long)]
         key: String,
-        #[arg(long)]
-        json: Option<String>,
     },
     /// Refresh the cache
     Refresh {
         #[arg(long)]
-        base: String,
-        #[arg(long)]
-        prefix: String,
-        #[arg(long)]
-        dir_prefix: Option<String>,
-        #[arg(long)]
-        expected_repo: Option<String>,
+        config: String,
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
+struct Config {
+    base: String,
+    prefix: String,
+    dir_prefix: Option<String>,
+    expected_repo: Option<String>,
+    aliases: Option<HashMap<String, String>>,
+}
+
+#[derive(serde::Serialize, Deserialize)]
 struct Cache {
     base: String,
     directories: Vec<String>,
@@ -83,6 +72,13 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+fn load_config(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    let expanded = expand_tilde(path);
+    let content = fs::read_to_string(&expanded)?;
+    let config: Config = serde_json::from_str(&content)?;
+    Ok(config)
 }
 
 fn resolve_base(default_base: &str, expected_repo: Option<&str>) -> String {
@@ -167,28 +163,25 @@ fn refresh_cache(base: &str, prefix: &str, dir_prefix: Option<&str>) -> Cache {
     cache
 }
 
-fn cmd_list(base: &str, prefix: &str, dir_prefix: Option<&str>, expected_repo: Option<&str>) {
-    let resolved_base = resolve_base(base, expected_repo);
+fn cmd_list(config: &Config, config_path: &str) {
+    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
 
-    // Try to load from cache first
     let candidates = if let Some(cache) = load_cache(&resolved_base) {
         // Spawn background refresh
         if let Ok(exe) = std::env::current_exe() {
-            let mut cmd = Command::new(exe);
-            cmd.arg("refresh")
-                .arg("--base")
-                .arg(&resolved_base)
-                .arg("--prefix")
-                .arg(prefix);
-            if let Some(dp) = dir_prefix {
-                cmd.arg("--dir-prefix").arg(dp);
-            }
-            let _ = cmd.spawn();
+            let _ = Command::new(exe)
+                .arg("refresh")
+                .arg("--config")
+                .arg(config_path)
+                .spawn();
         }
         cache.candidates
     } else {
-        // No cache, build synchronously
-        let cache = refresh_cache(&resolved_base, prefix, dir_prefix);
+        let cache = refresh_cache(
+            &resolved_base,
+            &config.prefix,
+            config.dir_prefix.as_deref(),
+        );
         cache.candidates
     };
 
@@ -197,30 +190,21 @@ fn cmd_list(base: &str, prefix: &str, dir_prefix: Option<&str>, expected_repo: O
     }
 }
 
-fn cmd_resolve(
-    base: &str,
-    prefix: &str,
-    dir_prefix: Option<&str>,
-    expected_repo: Option<&str>,
-    key: &str,
-    json: Option<&str>,
-) {
-    let resolved_base = resolve_base(base, expected_repo);
+fn cmd_resolve(config: &Config, key: &str) {
+    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
 
-    // Try JSON mapping first
-    if let Some(json_str) = json {
-        if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(json_str) {
-            if let Some(subpath) = map.get(key) {
-                let full_path = Path::new(&resolved_base).join(subpath);
-                if full_path.is_dir() {
-                    println!("{}", full_path.display());
-                    return;
-                }
+    // Try aliases first
+    if let Some(aliases) = &config.aliases {
+        if let Some(subpath) = aliases.get(key) {
+            let full_path = Path::new(&resolved_base).join(subpath);
+            if full_path.is_dir() {
+                println!("{}", full_path.display());
+                return;
             }
         }
     }
 
-    let target_dir = Path::new(&resolved_base).join(prefix);
+    let target_dir = Path::new(&resolved_base).join(&config.prefix);
 
     // Exact match
     let exact_path = target_dir.join(key);
@@ -230,7 +214,7 @@ fn cmd_resolve(
     }
 
     // Prefix match
-    if let Some(dp) = dir_prefix {
+    if let Some(dp) = &config.dir_prefix {
         let prefixed_path = target_dir.join(format!("{}{}", dp, key));
         if prefixed_path.is_dir() {
             println!("{}", prefixed_path.display());
@@ -238,51 +222,42 @@ fn cmd_resolve(
         }
     }
 
-    // Not found - exit with error
     std::process::exit(1);
 }
 
-fn cmd_refresh(base: &str, prefix: &str, dir_prefix: Option<&str>, expected_repo: Option<&str>) {
-    let resolved_base = resolve_base(base, expected_repo);
-    refresh_cache(&resolved_base, prefix, dir_prefix);
+fn cmd_refresh(config: &Config) {
+    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
+    refresh_cache(
+        &resolved_base,
+        &config.prefix,
+        config.dir_prefix.as_deref(),
+    );
 }
 
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::List {
-            base,
-            prefix,
-            dir_prefix,
-            expected_repo,
-        } => {
-            cmd_list(&base, &prefix, dir_prefix.as_deref(), expected_repo.as_deref());
+        Commands::List { config } => {
+            let cfg = load_config(&config).unwrap_or_else(|e| {
+                eprintln!("Failed to load config: {}", e);
+                std::process::exit(1);
+            });
+            cmd_list(&cfg, &config);
         }
-        Commands::Resolve {
-            base,
-            prefix,
-            dir_prefix,
-            expected_repo,
-            key,
-            json,
-        } => {
-            cmd_resolve(
-                &base,
-                &prefix,
-                dir_prefix.as_deref(),
-                expected_repo.as_deref(),
-                &key,
-                json.as_deref(),
-            );
+        Commands::Resolve { config, key } => {
+            let cfg = load_config(&config).unwrap_or_else(|e| {
+                eprintln!("Failed to load config: {}", e);
+                std::process::exit(1);
+            });
+            cmd_resolve(&cfg, &key);
         }
-        Commands::Refresh {
-            base,
-            prefix,
-            dir_prefix,
-            expected_repo,
-        } => {
-            cmd_refresh(&base, &prefix, dir_prefix.as_deref(), expected_repo.as_deref());
+        Commands::Refresh { config } => {
+            let cfg = load_config(&config).unwrap_or_else(|e| {
+                eprintln!("Failed to load config: {}", e);
+                std::process::exit(1);
+            });
+            cmd_refresh(&cfg);
         }
     }
 }
