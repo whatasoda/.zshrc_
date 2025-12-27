@@ -97,7 +97,11 @@ fn collect_paths(
     prefix: &str,
     dir_prefix: Option<&str>,
 ) -> (HashMap<String, String>, Vec<String>) {
-    let target_dir = Path::new(base).join(prefix);
+    let target_dir = if prefix == "." {
+        PathBuf::from(base)
+    } else {
+        Path::new(base).join(prefix)
+    };
     let mut paths: HashMap<String, String> = HashMap::new();
     let mut candidates: Vec<String> = Vec::new();
 
@@ -137,33 +141,27 @@ fn load_cache(config: &Config, base: &str) -> Option<Cache> {
 fn find_matching_cache(config: &Config) -> Option<(Cache, String)> {
     let cwd = std::env::current_dir().ok()?;
     let cwd_str = cwd.to_str()?;
-    let cache_dir = get_cache_dir(config);
+    let base = expand_tilde(&config.base);
 
-    if let Ok(entries) = fs::read_dir(&cache_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(cache) = serde_json::from_str::<Cache>(&content) {
-                        // Check base first
-                        if cwd_str.starts_with(&cache.base) {
-                            let base = cache.base.clone();
-                            return Some((cache, base));
-                        }
-                        // Check worktrees
-                        if let Some(worktrees) = &cache.worktrees {
-                            for wt in worktrees {
-                                if cwd_str.starts_with(wt) {
-                                    let matched = wt.clone();
-                                    return Some((cache, matched));
-                                }
-                            }
-                        }
-                    }
-                }
+    // Load only the cache for this config's base
+    let cache = load_cache(config, &base)?;
+
+    // Check base first
+    if cwd_str.starts_with(&cache.base) {
+        let base = cache.base.clone();
+        return Some((cache, base));
+    }
+
+    // Check worktrees
+    if let Some(worktrees) = &cache.worktrees {
+        for wt in worktrees {
+            if cwd_str.starts_with(wt) {
+                let matched = wt.clone();
+                return Some((cache, matched));
             }
         }
     }
+
     None
 }
 
