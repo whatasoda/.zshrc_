@@ -243,7 +243,11 @@ fn cmd_resolve(config: &Config, key: &str) {
         // Try aliases first
         if let Some(aliases) = &config.aliases {
             if let Some(subpath) = aliases.get(key) {
-                let full_path = Path::new(&matched_base).join(subpath);
+                let full_path = if subpath == "." {
+                    PathBuf::from(&matched_base)
+                } else {
+                    Path::new(&matched_base).join(subpath)
+                };
                 if full_path.is_dir() {
                     println!("{}", full_path.display());
                     return;
@@ -267,7 +271,11 @@ fn cmd_resolve(config: &Config, key: &str) {
     // Try aliases
     if let Some(aliases) = &config.aliases {
         if let Some(subpath) = aliases.get(key) {
-            let full_path = Path::new(&base).join(subpath);
+            let full_path = if subpath == "." {
+                PathBuf::from(&base)
+            } else {
+                Path::new(&base).join(subpath)
+            };
             if full_path.is_dir() {
                 println!("{}", full_path.display());
                 return;
