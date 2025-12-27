@@ -28,13 +28,8 @@ enum Commands {
         #[arg(long)]
         key: String,
     },
-    /// Refresh the cache
+    /// Refresh the cache (includes worktree discovery)
     Refresh {
-        #[arg(long)]
-        config: String,
-    },
-    /// Initialize cache with all worktrees
-    Init {
         #[arg(long)]
         config: String,
     },
@@ -257,6 +252,12 @@ fn cmd_list(config: &Config) {
 }
 
 fn cmd_resolve(config: &Config, key: &str) {
+    // Handle special key for refresh
+    if key == "--refresh" {
+        cmd_refresh(config);
+        return;
+    }
+
     // Try cache-first (no git command)
     if let Some((cache, matched_base)) = find_matching_cache(config) {
         // Try aliases first
@@ -322,17 +323,6 @@ fn cmd_resolve(config: &Config, key: &str) {
     std::process::exit(1);
 }
 
-fn cmd_refresh(config: &Config) {
-    let resolved_base = resolve_base(&config.base, config.expected_repo.as_deref());
-    refresh_cache(
-        config,
-        &resolved_base,
-        &config.prefix,
-        config.dir_prefix.as_deref(),
-        None,
-    );
-}
-
 fn get_worktrees(base: &str) -> Vec<String> {
     let output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -355,23 +345,22 @@ fn get_worktrees(base: &str) -> Vec<String> {
     worktrees
 }
 
-fn cmd_init(config: &Config) {
+fn cmd_refresh(config: &Config) {
     let base = expand_tilde(&config.base);
 
     // Get all worktrees
     let worktrees = get_worktrees(&base);
-
-    if worktrees.is_empty() {
-        eprintln!("No worktrees found in {}", base);
-        std::process::exit(1);
-    }
 
     // Collect paths from main repo
     let (paths, candidates) = collect_paths(&base, &config.prefix, config.dir_prefix.as_deref());
 
     let cache = Cache {
         base: base.clone(),
-        worktrees: Some(worktrees.clone()),
+        worktrees: if worktrees.is_empty() {
+            None
+        } else {
+            Some(worktrees.clone())
+        },
         paths,
         candidates,
     };
@@ -381,9 +370,13 @@ fn cmd_init(config: &Config) {
         std::process::exit(1);
     }
 
-    println!("Initialized cache with {} worktrees:", worktrees.len());
-    for wt in &worktrees {
-        println!("  {}", wt);
+    if worktrees.is_empty() {
+        println!("Refreshed cache (no worktrees)");
+    } else {
+        println!("Refreshed cache with {} worktrees:", worktrees.len());
+        for wt in &worktrees {
+            println!("  {}", wt);
+        }
     }
 }
 
@@ -411,13 +404,6 @@ fn main() {
                 std::process::exit(1);
             });
             cmd_refresh(&cfg);
-        }
-        Commands::Init { config } => {
-            let cfg = load_config(&config).unwrap_or_else(|e| {
-                eprintln!("Failed to load config: {}", e);
-                std::process::exit(1);
-            });
-            cmd_init(&cfg);
         }
     }
 }
