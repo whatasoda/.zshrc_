@@ -175,6 +175,21 @@ fn transform_path(path: &str, from_base: &str, to_base: &str) -> String {
     }
 }
 
+fn find_effective_base(base: &str, worktrees: &[String]) -> String {
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Some(cwd_str) = cwd.to_str() {
+            // Check if cwd is in any worktree
+            for wt in worktrees {
+                if cwd_str.starts_with(wt) {
+                    return wt.clone();
+                }
+            }
+        }
+    }
+    // Default to main base
+    base.to_string()
+}
+
 fn save_cache(config: &Config, cache: &Cache) -> io::Result<()> {
     let cache_dir = get_cache_dir(config);
     fs::create_dir_all(&cache_dir)?;
@@ -215,12 +230,13 @@ fn cmd_list(config: &Config) {
     let cache = if let Some(cache) = load_cache(config, &base) {
         cache
     } else {
+        let worktrees = get_worktrees(&base);
         refresh_cache(
             config,
             &base,
             &config.prefix,
             config.dir_prefix.as_deref(),
-            None,
+            if worktrees.is_empty() { None } else { Some(worktrees) },
         )
     };
 
@@ -263,29 +279,40 @@ fn cmd_resolve(config: &Config, key: &str) {
         }
     }
 
-    // Cache miss - use default base (root worktree)
+    // Cache miss - determine effective base considering worktrees
     let base = expand_tilde(&config.base);
+    let worktrees = get_worktrees(&base);
+    let effective_base = find_effective_base(&base, &worktrees);
 
-    // Try aliases
+    // Try aliases with effective base
     if let Some(aliases) = &config.aliases {
         if let Some(subpath) = aliases.get(key) {
             let full_path = if subpath == "." {
-                PathBuf::from(&base)
+                PathBuf::from(&effective_base)
             } else {
-                Path::new(&base).join(subpath)
+                Path::new(&effective_base).join(subpath)
             };
             if full_path.is_dir() {
+                // Save cache for future use
+                let _ = refresh_cache(
+                    config,
+                    &base,
+                    &config.prefix,
+                    config.dir_prefix.as_deref(),
+                    if worktrees.is_empty() { None } else { Some(worktrees) },
+                );
                 println!("{}", full_path.display());
                 return;
             }
         }
     }
 
-    // Try existing cache
+    // Try existing cache with path transformation
     if let Some(cache) = load_cache(config, &base) {
         if let Some(path) = cache.paths.get(key) {
-            if Path::new(path).is_dir() {
-                println!("{}", path);
+            let transformed = transform_path(path, &base, &effective_base);
+            if Path::new(&transformed).is_dir() {
+                println!("{}", transformed);
                 return;
             }
         }
@@ -297,11 +324,12 @@ fn cmd_resolve(config: &Config, key: &str) {
         &base,
         &config.prefix,
         config.dir_prefix.as_deref(),
-        None,
+        if worktrees.is_empty() { None } else { Some(worktrees) },
     );
     if let Some(path) = cache.paths.get(key) {
-        if Path::new(path).is_dir() {
-            println!("{}", path);
+        let transformed = transform_path(path, &base, &effective_base);
+        if Path::new(&transformed).is_dir() {
+            println!("{}", transformed);
             return;
         }
     }
