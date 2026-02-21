@@ -44,7 +44,6 @@ GW_SYNC_PATHS=(
 # gw function
 # ==========================
 function gw() {
-  local WT_ROOT="$HOME/worktrees"
   local wt_name="$1"
 
   # Get current Git repository root
@@ -54,36 +53,28 @@ function gw() {
     return 1
   }
 
-  # Parse GitHub remote URL to get owner and repo name
-  local remote_url
-  remote_url=$(git config --get remote.origin.url)
-  if [[ "$remote_url" =~ github.com[:/](.*)/(.*)(\.git)?$ ]]; then
-    local owner="${match[1]}"
-    local repo="${match[2]%.git}"
-  else
-    echo "Unsupported or missing remote URL: $remote_url"
-    return 1
+  # Determine main repository root (resolve from worktree if needed)
+  local main_repo_root="$repo_root"
+  if [[ -f "$repo_root/.git" ]]; then
+    local gitdir_line
+    gitdir_line=$(<"$repo_root/.git")
+    if [[ "$gitdir_line" =~ gitdir:\ (.*)/\.git/worktrees/.* ]]; then
+      main_repo_root="${match[1]}"
+    fi
   fi
 
-  # If no argument: go to main repository (even from a worktree)
+  # If no argument: go to main repository
   if [[ -z "$wt_name" ]]; then
-    if [[ -f "$repo_root/.git" ]]; then
-      local gitdir_line
-      gitdir_line=$(<"$repo_root/.git")
-      if [[ "$gitdir_line" =~ gitdir:\ (.*)/\.git/worktrees/.* ]]; then
-        local main_repo_path="${match[1]}"
-        echo "[gw] Moving to main repository: $main_repo_path"
-        cd "$main_repo_path" || return 1
-        return 0
-      fi
+    if [[ "$repo_root" != "$main_repo_root" ]]; then
+      echo "[gw] Moving to main repository: $main_repo_root"
+    else
+      echo "[gw] Already in main repository: $repo_root"
     fi
-
-    echo "[gw] Already in main repository: $repo_root"
-    cd "$repo_root" || return 1
+    cd "$main_repo_root" || return 1
     return 0
   fi
 
-  local base_dir="$WT_ROOT/$owner/$repo"
+  local base_dir="$main_repo_root/.claude/worktree"
   local target_dir="$base_dir/$wt_name"
 
   if [[ -d "$target_dir" ]]; then
@@ -231,14 +222,19 @@ function gwlink() {
 # gw completion (_gw)
 # ==========================
 function _gw() {
-  local WT_ROOT="$HOME/worktrees"
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return
 
-  local remote_url=$(git config --get remote.origin.url 2>/dev/null)
-  [[ "$remote_url" =~ github.com[:/](.*)/(.*)(\.git)?$ ]] || return
-  local owner="${match[1]}"
-  local repo="${match[2]%.git}"
+  local main_repo_root="$repo_root"
+  if [[ -f "$repo_root/.git" ]]; then
+    local gitdir_line
+    gitdir_line=$(<"$repo_root/.git")
+    if [[ "$gitdir_line" =~ gitdir:\ (.*)/\.git/worktrees/.* ]]; then
+      main_repo_root="${match[1]}"
+    fi
+  fi
 
-  local base_dir="$WT_ROOT/$owner/$repo"
+  local base_dir="$main_repo_root/.claude/worktree"
   [[ -d "$base_dir" ]] || return
 
   local -a worktrees
