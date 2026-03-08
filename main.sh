@@ -30,6 +30,31 @@ alias restart-control-center="killall ControlCenter"
 source $ZSH/zsh-autosuggestions/zsh-autosuggestions.zsh
 
 # Starship
+_update_starship_worktree_dir() {
+  local root common_git_dir worktree_name prefix rel_path
+  if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    export STARSHIP_WORKTREE_DIR="${PWD/#$HOME/~}"
+    return
+  fi
+  common_git_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+  worktree_name=$(basename "$root")
+  if [[ "$common_git_dir" != /* ]]; then
+    prefix="$worktree_name"
+  else
+    local main_repo_name=$(basename "${common_git_dir%/.git}")
+    prefix="$main_repo_name/$worktree_name"
+  fi
+  rel_path="${PWD#$root}"
+  rel_path="${rel_path#/}"
+  if [[ -n "$rel_path" ]]; then
+    export STARSHIP_WORKTREE_DIR="${prefix}:${rel_path}"
+  else
+    export STARSHIP_WORKTREE_DIR="${prefix}"
+  fi
+}
+chpwd_functions+=(_update_starship_worktree_dir)
+_update_starship_worktree_dir
+
 eval "$(starship init zsh)"
 
 alias ttyconf='code "$HOME/Library/Application Support/com.mitchellh.ghostty/config"'
