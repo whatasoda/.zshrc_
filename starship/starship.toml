@@ -55,7 +55,7 @@ $docker_context\
 \
 $line_break\
 \
-${custom.worktree}\
+${env_var.STARSHIP_WORKTREE_DIR}\
 $git_branch\
 $git_commit\
 $git_state\
@@ -96,10 +96,8 @@ min_time = 0
 [git_commit]
 only_detached = false
 
-[custom.worktree]
-command = "~/.zshrc_/starship/starship-worktree.sh"
-when = "true"
-format = "[$output]($style) "
+[env_var.STARSHIP_WORKTREE_DIR]
+format = "[$env_value]($style) "
 style = "cyan bold"
 
 [fill]
