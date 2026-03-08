@@ -86,8 +86,8 @@ function gw() {
     local selected
     selected=$(printf '%s\n' "${entries[@]}" \
       | fzf --delimiter=$'\t' --with-nth=1 \
-            --preview 'git -C {2} rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A"' \
-            --preview-window=right:30%:wrap) || return 0
+            --preview 'git -C "$(echo {} | cut -f2)" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A"' \
+            --preview-window=top:1:wrap) || return 0
 
     local target_path="${selected##*$'\t'}"
     cd "$target_path" || return 1
