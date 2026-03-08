@@ -65,21 +65,32 @@ function gw() {
     return 1
   fi
 
-  # If no argument: go to main repository (even from a worktree)
+  # If no argument: interactive worktree selection with fzf
   if [[ -z "$wt_name" ]]; then
-    if [[ -f "$repo_root/.git" ]]; then
-      local gitdir_line
-      gitdir_line=$(<"$repo_root/.git")
-      if [[ "$gitdir_line" =~ gitdir:\ (.*)/\.git/worktrees/.* ]]; then
-        local main_repo_path="${match[1]}"
-        echo "[gw] Moving to main repository: $main_repo_path"
-        cd "$main_repo_path" || return 1
-        return 0
+    local base_dir="$WT_ROOT/$owner/$repo"
+    local entries=()
+    local wt_path
+    while IFS= read -r line; do
+      if [[ "$line" == worktree\ * ]]; then
+        wt_path="${line#worktree }"
+        local display_name
+        if [[ "$wt_path" == "$base_dir/"* ]]; then
+          display_name="${wt_path#$base_dir/}"
+        else
+          display_name="(main)"
+        fi
+        entries+=("$display_name"$'\t'"$wt_path")
       fi
-    fi
+    done < <(git worktree list --porcelain)
 
-    echo "[gw] Already in main repository: $repo_root"
-    cd "$repo_root" || return 1
+    local selected
+    selected=$(printf '%s\n' "${entries[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=1 \
+            --preview 'git -C "$(echo {} | cut -f2)" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A"' \
+            --preview-window=top:1:wrap) || return 0
+
+    local target_path="${selected##*$'\t'}"
+    cd "$target_path" || return 1
     return 0
   fi
 
